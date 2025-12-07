@@ -1,40 +1,43 @@
 const OpenAI = require("openai");
+const logger = require("../utils/logger");
 
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+const LLM_ENABLED = process.env.LLM_ENABLED === "true";
+
+let openai = null;
+
+if (LLM_ENABLED) {
+  openai = new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
 
 /**
- * Identifies logical backend flows impacted by a Git diff
- * Returns structured JSON so analyzer logic stays deterministic
+ * Detect impacted backend flows
  */
-exports.identifyFlows = async (context) => {
-  const prompt = `
-You are a senior backend architect.
+exports.identifyFlows = async (codeContext) => {
+  // ✅ STUB MODE
+  if (!LLM_ENABLED) {
+    logger.info("🧪 LLM disabled → returning mocked flows");
 
-From the Git diff and metadata below:
-- Identify backend application flows impacted
-- A "flow" is a user-visible or system-visible process
-- Multiple flows may exist
-- Utility-only changes without behavior change should be ignored
-
-Return STRICT JSON only in this format:
-[
-  {
-    "name": "flow_name",
-    "confidence": 0.0-1.0,
-    "files": ["file1.js"],
-    "description": "why this flow is impacted"
+    return [
+      {
+        name: "Webhook Receiver Flow",
+        type: "backend",
+        files: ["webhookController.js"],
+      },
+    ];
   }
-]
 
-Input:
-${JSON.stringify(context, null, 2)}
+  // ✅ REAL MODE
+  const prompt = `
+Identify backend flows impacted by the following Git diff.
+Return STRICT JSON.
+
+${JSON.stringify(codeContext, null, 2)}
 `;
 
-  const res = await client.chat.completions.create({
+  const res = await openai.chat.completions.create({
     model: "gpt-4.1",
-    temperature: 0,
     messages: [{ role: "user", content: prompt }],
   });
 
@@ -42,30 +45,50 @@ ${JSON.stringify(context, null, 2)}
 };
 
 /**
- * Generates or updates documentation for a flow
+ * Generate documentation
  */
 exports.generateDocumentation = async ({ flow, context, action }) => {
+  // ✅ STUB MODE
+  if (!LLM_ENABLED) {
+    logger.info(`🧪 LLM disabled → returning mocked ${action} docs`);
+
+    if (action === "create") {
+      return `
+# ${flow.name}
+
+## Overview
+This flow handles GitLab webhook events and forwards merge request data to downstream systems.
+
+## Sequence
+1. GitLab sends merge webhook
+2. webhook-receiver validates payload
+3. Payload sent to AI Analyzer
+
+## Modified Files
+${flow.files.join(", ")}
+`;
+    }
+
+    // update case
+    return `
+## Update – ${flow.name}
+
+- Minor formatting change detected
+- No business logic impact
+- Verified webhook response handling
+`;
+  }
+
+  // ✅ REAL MODE
   const prompt = `
-You are a technical documentation expert.
+${action.toUpperCase()} technical documentation for flow ${flow.name}.
+Explain only what changed.
 
-Task: ${action.toUpperCase()} documentation
-
-Flow name: ${flow.name}
-
-Rules:
-- Be concise but complete
-- Assume reader is a backend engineer
-- Use headings and bullet points
-- If updating, only describe what changed
-- If creating, include overview + steps + edge cases
-
-Relevant code context:
 ${JSON.stringify(context, null, 2)}
 `;
 
-  const res = await client.chat.completions.create({
+  const res = await openai.chat.completions.create({
     model: "gpt-4.1",
-    temperature: 0.2,
     messages: [{ role: "user", content: prompt }],
   });
 
