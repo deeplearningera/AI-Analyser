@@ -1,69 +1,72 @@
 const axios = require("axios");
 const logger = require("../utils/logger");
 
-const BASE_URL = process.env.CONFLUENCE_BASE_URL;
-// example: https://rachittech927.atlassian.net/wiki
-const SPACE_KEY = process.env.CONFLUENCE_SPACE_KEY;
+const {
+  CONFLUENCE_BASE_URL,
+  CONFLUENCE_SPACE_KEY,
+  CONFLUENCE_AUTH_USERNAME,
+  CONFLUENCE_AUTH_API_TOKEN,
+} = process.env;
 
-const client = axios.create({
-  baseURL: BASE_URL,
+// ✅ Atlassian Cloud requires /wiki/rest/api
+const confluence = axios.create({
+  baseURL: `${CONFLUENCE_BASE_URL}/wiki/rest/api`,
   auth: {
-    username: process.env.CONFLUENCE_EMAIL,
-    password: process.env.CONFLUENCE_API_TOKEN
+    username: CONFLUENCE_AUTH_USERNAME,
+    password: CONFLUENCE_AUTH_API_TOKEN,
   },
   headers: {
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
   },
-  timeout: 5000
+  timeout: 10000,
 });
 
-exports.createPage = async (title, htmlContent) => {
-  try {
-    const res = await client.post("/rest/api/content", {
-      type: "page",
-      title,
-      space: {
-        key: SPACE_KEY
+/**
+ * ✅ Create a new Confluence page
+ */
+exports.create = async (title, htmlContent) => {
+  logger.info(`📄 Creating new Confluence page: ${title}`);
+
+  const res = await confluence.post("/content", {
+    type: "page",
+    title,
+    space: {
+      key: CONFLUENCE_SPACE_KEY, // ✅ MAA
+    },
+    body: {
+      storage: {
+        value: htmlContent,
+        representation: "storage",
       },
-      body: {
-        storage: {
-          value: htmlContent,
-          representation: "storage"
-        }
-      }
-    });
+    },
+  });
 
-    logger.info(`✅ Confluence page created: ${res.data.id}`);
-    return res.data.id;
-
-  } catch (err) {
-    logger.error("❌ Confluence createPage failed", err.response?.data || err);
-    throw err;
-  }
+  return res.data.id;
 };
 
-exports.updatePage = async (pageId, title, htmlContent, version) => {
-  try {
-    const res = await client.put(`/rest/api/content/${pageId}`, {
-      id: pageId,
-      type: "page",
-      title,
-      version: {
-        number: version + 1
+/**
+ * ✅ Update existing Confluence page
+ */
+exports.update = async (pageId, htmlContent) => {
+  logger.info(`✏️ Updating Confluence page: ${pageId}`);
+
+  // Fetch current page to get version
+  const existing = await confluence.get(`/content/${pageId}`);
+
+  const updatedVersion = existing.data.version.number + 1;
+
+  await confluence.put(`/content/${pageId}`, {
+    id: pageId,
+    type: "page",
+    title: existing.data.title,
+    version: {
+      number: updatedVersion,
+    },
+    body: {
+      storage: {
+        value: htmlContent,
+        representation: "storage",
       },
-      body: {
-        storage: {
-          value: htmlContent,
-          representation: "storage"
-        }
-      }
-    });
-
-    logger.info(`✅ Confluence page updated: ${pageId}`);
-    return res.data.id;
-
-  } catch (err) {
-    logger.error("❌ Confluence updatePage failed", err.response?.data || err);
-    throw err;
-  }
+    },
+  });
 };
